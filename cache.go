@@ -1,16 +1,23 @@
 package smolcache
 
 import (
-	"hash/fnv"
 	"sync"
 	"sync/atomic"
+
+	"hash/maphash"
 )
 
 type Interner struct {
 	maps [127]block
 
+	max  uint64
+	seed maphash.Seed
+
+	// padding so that the count, which changes frequently, doesn't
+	// share a cache line with the max and seed, which are read only
+	_padding [48]byte
+
 	count uint64
-	max   uint64
 
 	clockLock sync.Mutex
 
@@ -26,11 +33,14 @@ type block struct {
 
 	// CLOCK sweep state, guarded by clockLock
 	next *Element
+	// pad blocks out to be cache aligned
+	_padding [16]byte
 }
 
 func WithMax(max uint64) *Interner {
 	return &Interner{
-		max: max,
+		max:  max,
+		seed: maphash.MakeSeed(),
 	}
 }
 
@@ -41,9 +51,10 @@ func (i *Interner) Insert(key string, value int64) {
 		i.evict()
 	}
 
-	h := fnv.New32()
-	h.Write([]byte(key))
-	blockNum := h.Sum32() % 127
+	h := maphash.Hash{}
+	h.SetSeed(i.seed)
+	h.WriteString(key)
+	blockNum := h.Sum64() % 127
 	block := &i.maps[blockNum]
 	block.insert(key, value)
 }
@@ -111,9 +122,10 @@ func (b *block) tryEvict() (evicted bool, reachedEnd bool) {
 }
 
 func (i *Interner) Get(key string) (int64, bool) {
-	h := fnv.New32()
-	h.Write([]byte(key))
-	blockNum := h.Sum32() % 127
+	h := maphash.Hash{}
+	h.SetSeed(i.seed)
+	h.WriteString(key)
+	blockNum := h.Sum64() % 127
 	block := &i.maps[blockNum]
 	return block.get(key)
 }
@@ -137,9 +149,10 @@ func (b *block) get(key string) (int64, bool) {
 }
 
 func (i *Interner) Unmark(key string) bool {
-	h := fnv.New32()
-	h.Write([]byte(key))
-	blockNum := h.Sum32() % 127
+	h := maphash.Hash{}
+	h.SetSeed(i.seed)
+	h.WriteString(key)
+	blockNum := h.Sum64() % 127
 	block := &i.maps[blockNum]
 	return block.unmark(key)
 }

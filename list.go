@@ -8,6 +8,13 @@ package smolcache
 
 // Element is an element of a linked list.
 type Element struct {
+	// The value stored with this element.
+	key   string
+	Value int64
+
+	// pad Elements out to be cache aligned
+	_padding [8]byte
+
 	// Next and previous pointers in the doubly-linked list of elements.
 	// To simplify the implementation, internally a list l is implemented
 	// as a ring, such that &l.root is both the next element of the last
@@ -18,10 +25,8 @@ type Element struct {
 	// The list to which this element belongs.
 	list *List
 
-	// The value stored with this element.
-	key   string
-	Value int64
-	used  uint32
+	//CLOCK marker if this is recently used
+	used uint32
 }
 
 // Next returns the next list element or nil.

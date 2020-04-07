@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"unsafe"
 )
 
 func TestWriteAndGetOnCache(t *testing.T) {
@@ -124,4 +125,26 @@ func TestCacheGetRandomly(t *testing.T) {
 		wg.Done()
 	}()
 	wg.Wait()
+}
+
+func TestBlockCacheAligned(t *testing.T) {
+	blockSize := unsafe.Sizeof(block{})
+	if blockSize%64 != 0 {
+		t.Errorf("unaligned block size: %d", blockSize)
+	}
+}
+
+func TestElementCacheAligned(t *testing.T) {
+	elementSize := unsafe.Sizeof(Element{})
+	if elementSize%64 != 0 {
+		t.Errorf("unaligned element size: %d", elementSize)
+	}
+}
+
+func TestCountOffset(t *testing.T) {
+	seedOffset := unsafe.Offsetof(Interner{}.seed)
+	countOffset := unsafe.Offsetof(Interner{}.count)
+	if seedOffset/64 == countOffset/64 {
+		t.Errorf("seed and count on same cache line\nseed @ %d (%d)\noffset @ %d (%d)", seedOffset, seedOffset/64, countOffset, countOffset/64)
+	}
 }
