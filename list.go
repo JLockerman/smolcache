@@ -75,14 +75,6 @@ func (l *List) Front() *Element {
 	return l.root.next
 }
 
-// Back returns the last element of list l or nil if the list is empty.
-func (l *List) Back() *Element {
-	if l.len == 0 {
-		return nil
-	}
-	return l.root.prev
-}
-
 // lazyInit lazily initializes a zero List value.
 func (l *List) lazyInit() {
 	if l.root.next == nil {
@@ -147,78 +139,8 @@ func (l *List) Remove(e *Element) (string, int64) {
 	return e.key, e.Value
 }
 
-// PushFront inserts a new element e with value v at the front of list l and returns e.
-func (l *List) PushFront(k string, v int64) *Element {
-	l.lazyInit()
-	return l.insertValue(k, v, &l.root)
-}
-
 // PushBack inserts a new element e with value v at the back of list l and returns e.
 func (l *List) PushBack(k string, v int64) *Element {
 	l.lazyInit()
 	return l.insertValue(k, v, l.root.prev)
-}
-
-// InsertBefore inserts a new element e with value v immediately before mark and returns e.
-// If mark is not an element of l, the list is not modified.
-// The mark must not be nil.
-func (l *List) InsertBefore(k string, v int64, mark *Element) *Element {
-	if mark.list != l {
-		return nil
-	}
-	// see comment in List.Remove about initialization of l
-	return l.insertValue(k, v, mark.prev)
-}
-
-// InsertAfter inserts a new element e with value v immediately after mark and returns e.
-// If mark is not an element of l, the list is not modified.
-// The mark must not be nil.
-func (l *List) InsertAfter(k string, v int64, mark *Element) *Element {
-	if mark.list != l {
-		return nil
-	}
-	// see comment in List.Remove about initialization of l
-	return l.insertValue(k, v, mark)
-}
-
-// MoveToFront moves element e to the front of list l.
-// If e is not an element of l, the list is not modified.
-// The element must not be nil.
-func (l *List) MoveToFront(e *Element) {
-	if e.list != l || l.root.next == e {
-		return
-	}
-	// see comment in List.Remove about initialization of l
-	l.move(e, &l.root)
-}
-
-// MoveToBack moves element e to the back of list l.
-// If e is not an element of l, the list is not modified.
-// The element must not be nil.
-func (l *List) MoveToBack(e *Element) {
-	if e.list != l || l.root.prev == e {
-		return
-	}
-	// see comment in List.Remove about initialization of l
-	l.move(e, l.root.prev)
-}
-
-// MoveBefore moves element e to its new position before mark.
-// If e or mark is not an element of l, or e == mark, the list is not modified.
-// The element and mark must not be nil.
-func (l *List) MoveBefore(e, mark *Element) {
-	if e.list != l || e == mark || mark.list != l {
-		return
-	}
-	l.move(e, mark.prev)
-}
-
-// MoveAfter moves element e to its new position after mark.
-// If e or mark is not an element of l, or e == mark, the list is not modified.
-// The element and mark must not be nil.
-func (l *List) MoveAfter(e, mark *Element) {
-	if e.list != l || e == mark || mark.list != l {
-		return
-	}
-	l.move(e, mark)
 }

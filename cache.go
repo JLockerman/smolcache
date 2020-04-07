@@ -7,6 +7,14 @@ import (
 	"hash/maphash"
 )
 
+// CLOCK based approximate LRU storing mappings from strings to
+// int64s designed for concurrent usage.
+// It is sharded into 127 blocks, each of which can be
+// locked independently. Gets only require a read lock on the
+// individual block the element can be found in. When the cache is
+// not full, Insert only requires a write lock on the individual
+// block. Eviction locks blocks one at a time looking for a value
+// that's valid to evict/
 type Interner struct {
 	maps [127]block
 
@@ -29,7 +37,9 @@ type block struct {
 	lock sync.RWMutex
 	// guarded by lock
 	elements map[string]*Element
-	sweep    List
+
+	// only safe to not use a pointer since blocks never move
+	sweep List
 
 	// CLOCK sweep state, guarded by clockLock
 	next *Element
@@ -173,4 +183,8 @@ func (b *block) unmark(key string) bool {
 	}
 
 	return true
+}
+
+func (i *Interner) Len() uint64 {
+	return atomic.LoadUint64(&i.count)
 }
