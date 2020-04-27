@@ -12,16 +12,18 @@ func TestWriteAndGetOnCache(t *testing.T) {
 	t.Parallel()
 
 	cache := WithMax(100)
-
-	cache.Insert("1", 1)
-	val, found := cache.Get("1")
+	cache.Insert("1", 1, "foo")
+	ival, sval, found := cache.Get("1")
 
 	// then
 	if !found {
 		t.Error("no value found")
 	}
-	if val != 1 {
-		t.Errorf("expected %d found %d", 1, val)
+	if ival != 1 {
+		t.Errorf("expected %d found %d", 1, ival)
+	}
+	if sval != "foo" {
+		t.Errorf("expected %s found %s", "foo", sval)
 	}
 }
 
@@ -30,14 +32,17 @@ func TestEntryNotFound(t *testing.T) {
 
 	cache := WithMax(100)
 
-	val, found := cache.Get("nonExistingKey")
+	val, sval, found := cache.Get("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
+	if val != 0 || sval != "" {
+		t.Errorf("unexpected val %v, %v for noexistent key", val, sval)
+	}
 
-	cache.Insert("key", 1)
+	cache.Insert("key", 1, "foo")
 
-	val, found = cache.Get("nonExistingKey")
+	val, sval, found = cache.Get("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
@@ -49,52 +54,62 @@ func TestEviction(t *testing.T) {
 	cache := WithMax(10)
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		cache.Insert(key, int64(i))
+		cache.Insert(key, int64(i), fmt.Sprintf("str %d", i))
 		if i != 5 {
-			cache.Get(key)
+			// ensure all value except for 5 are marked as used
+			val, sval, found := cache.Get(key)
+			if !found || val != int64(i) || sval != fmt.Sprintf("str %d", i) {
+				t.Errorf("missing value %d, got (%d, %s)", i, val, sval)
+			}
 		}
 	}
 
-	cache.Insert("100", 100)
+	// this should evict 5
+	cache.Insert("100", 100, fmt.Sprintf("str %d", 100))
+	// ensure 100 is marked as used
 	cache.Get("100")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.Get(key)
-		if i != 5 && (!found || val != int64(i)) {
-			t.Errorf("missing value %d, got %d", i, val)
+		val, sval, found := cache.Get(key)
+		// ensure all values are marked as used
+		if i != 5 && (!found || val != int64(i) || sval != fmt.Sprintf("str %d", i)) {
+			t.Errorf("missing value %d, got (%d, %s)\n%+v", i, val, sval, cache)
 		} else if i == 5 && found {
 			t.Errorf("5 not evicted")
 		}
+		// unmark 2
 		if i == 2 {
 			cache.Unmark(key)
 		}
 	}
 
-	val, found := cache.Get("100")
-	if !found || val != 100 {
-		t.Errorf("missing value 100, got %d", val)
+	val, sval, found := cache.Get("100")
+	if !found || val != 100 || sval != fmt.Sprintf("str %d", 100) {
+		t.Errorf("missing value 100, got (%d, %s)", val, sval)
 	}
 
-	cache.Insert("101", 101)
+	t.Logf("cache %+v", cache)
+
+	cache.Insert("101", 101, fmt.Sprintf("str %d", 101))
 	cache.Get("101")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.Get(key)
-		if i != 5 && i != 2 && (!found || val != int64(i)) {
-			t.Errorf("missing value %d, (found: %v) got %d", i, found, val)
+		val, sval, found := cache.Get(key)
+		if i != 5 && i != 2 && (!found || val != int64(i) || sval != fmt.Sprintf("str %d", i)) {
+			t.Errorf("missing value %d, (found: %v) got (%d, %s)\n%+v", i, found, val, sval, cache)
 		} else if (i == 5 || i == 2) && found {
 			t.Errorf("%d not evicted", i)
 		}
 	}
 
-	val, found = cache.Get("100")
-	if !found || val != 100 {
+	val, sval, found = cache.Get("100")
+	if !found || val != 100 || sval != fmt.Sprintf("str %d", 100) {
 		t.Errorf("missing value 100, got %d", val)
 	}
-	val, found = cache.Get("101")
-	if !found || val != 101 {
+	val, sval, found = cache.Get("101")
+	if !found || val != 101 || sval != fmt.Sprintf("str %d", 101) {
 		t.Errorf("missing value 101, got %d", val)
 	}
 }
@@ -110,7 +125,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63() % 20000
 			key := fmt.Sprintf("%d", r)
-			cache.Insert(key, r+1)
+			cache.Insert(key, r+1, "")
 		}
 		wg.Done()
 	}()
@@ -118,7 +133,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63()
 			key := fmt.Sprintf("%d", r)
-			if val, found := cache.Get(key); found && val != r+1 {
+			if val, _, found := cache.Get(key); found && val != r+1 {
 				t.Errorf("got %s ->\n %x\n expected:\n %x\n ", key, val, r+1)
 			}
 		}
