@@ -101,6 +101,7 @@ func (i *Interner) InsertWithHash(key interface{}, value interface{}, hash uint6
 }
 
 func (b *block) insert(key interface{}, value interface{}) bool {
+	elem := elementForValue(key, value)
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.elements == nil {
@@ -110,7 +111,7 @@ func (b *block) insert(key interface{}, value interface{}) bool {
 	if present {
 		return false
 	}
-	elem := b.sweep.PushBack(key, value)
+	b.sweep.PushBack(elem)
 	b.elements[key] = elem
 	return true
 }
