@@ -45,10 +45,15 @@ func WithMaxAndShards(max uint64, shards int) *Interner {
 func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool) {
 	newSize := atomic.AddUint64(&i.count, 1)
 	needsEvict := newSize > i.max
+	var elem *Element
+	if !needsEvict {
+		elem = makeElement(key, value)
+	}
 	i.lock.Lock()
 	defer i.lock.Unlock()
 	if needsEvict {
-		i.evict()
+		elem = i.evict()
+		elem.set(key, value)
 	}
 
 	if i.elements == nil {
@@ -58,32 +63,32 @@ func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool
 	if present {
 		return val.Value, false
 	}
-	elem := i.sweep.PushBack(key, value)
+	i.sweep.PushBack(elem)
 	i.elements[key] = elem
 	return value, true
 }
 
-func (i *Interner) evict() {
+func (i *Interner) evict() *Element {
 	if i.count == 0 {
-		return
+		return nil
 	}
 	for {
-		evicted := i.tryEvict()
+		elem, evicted := i.tryEvict()
 		if evicted {
 			atomic.AddUint64(&i.count, ^uint64(0))
-			break
+			return elem
 		}
 	}
 }
 
-func (i *Interner) tryEvict() (evicted bool) {
+func (i *Interner) tryEvict() (elem *Element, evicted bool) {
 	if i.prev == nil || i.prev.Next() == nil {
 		i.prev = i.sweep.Root()
 	}
 
-	elem := i.prev.Next()
+	elem = i.prev.Next()
 	if elem == nil {
-		return false
+		return nil, false
 	}
 
 	evicted = false
@@ -101,7 +106,7 @@ func (i *Interner) tryEvict() (evicted bool) {
 		}
 	}
 
-	return evicted
+	return
 }
 
 func (i *Interner) Get(key interface{}) (interface{}, bool) {

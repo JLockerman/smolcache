@@ -56,11 +56,6 @@ func (l *List) insert(e, at *Element) *Element {
 	return e
 }
 
-// insertValue is a convenience wrapper for insert(&Element{Value: v}, at).
-func (l *List) insertValue(k interface{}, v interface{}, at *Element) *Element {
-	return l.insert(&Element{key: k, Value: v}, at)
-}
-
 // remove removes e from its list, decrements l.len, and returns e.
 func (l *List) removeNext(e *Element) *Element {
 	next := e.next
@@ -84,10 +79,18 @@ func (l *List) RemoveNext(e *Element) (key interface{}, val interface{}) {
 }
 
 // PushBack inserts a new element e with value v at the back of list l and returns e.
-func (l *List) PushBack(k interface{}, v interface{}) *Element {
+func (l *List) PushBack(e *Element) {
 	if l.last == nil {
 		l.Init()
 	}
-	l.last = l.insertValue(k, v, l.last)
-	return l.last
+	l.last = l.insert(e, l.last)
+	return
+}
+
+func makeElement(key interface{}, value interface{}) *Element {
+	return &Element{key: key, Value: value}
+}
+
+func (e *Element) set(key interface{}, value interface{}) {
+	*e = Element{key: key, Value: value}
 }
