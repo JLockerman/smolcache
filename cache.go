@@ -1,6 +1,7 @@
 package smolcache
 
 import (
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 
@@ -36,13 +37,13 @@ type Interner struct {
 type block struct {
 	lock sync.RWMutex
 	// guarded by lock
-	elements map[string]*Element
+	elements map[interface{}]*Element
 
 	// only safe to not use a pointer since blocks never move
 	sweep List
 
 	// CLOCK sweep state, guarded by clockLock
-	next *Element
+	prev *Element
 	// pad blocks out to be cache aligned
 	_padding [16]byte
 }
@@ -54,7 +55,19 @@ func WithMax(max uint64) *Interner {
 	}
 }
 
-func (i *Interner) Insert(key string, value int64) {
+func WithMaxAndShards(max uint64, shards int) *Interner {
+	//TODO variable number of shards
+	return &Interner{
+		max:  max,
+		seed: maphash.MakeSeed(),
+	}
+}
+
+func (i *Interner) GetSeed() maphash.Seed {
+	return i.seed
+}
+
+func (i *Interner) InsertString(key string, value interface{}) {
 	newSize := atomic.AddUint64(&i.count, 1)
 	needsEvict := newSize > i.max
 	if needsEvict {
@@ -64,16 +77,34 @@ func (i *Interner) Insert(key string, value int64) {
 	h := maphash.Hash{}
 	h.SetSeed(i.seed)
 	h.WriteString(key)
-	blockNum := h.Sum64() % 127
+	i.InsertWithHash(key, value, h.Sum64())
+}
+
+func (i *Interner) InsertInt(key uint64, value interface{}) {
+	newSize := atomic.AddUint64(&i.count, 1)
+	needsEvict := newSize > i.max
+	if needsEvict {
+		i.evict()
+	}
+
+	h := maphash.Hash{}
+	h.SetSeed(i.seed)
+	b := [8]byte{}
+	binary.LittleEndian.PutUint64(b[:], key)
+	i.InsertWithHash(key, value, h.Sum64())
+}
+
+func (i *Interner) InsertWithHash(key interface{}, value interface{}, hash uint64) {
+	blockNum := hash % 127
 	block := &i.maps[blockNum]
 	block.insert(key, value)
 }
 
-func (b *block) insert(key string, value int64) bool {
+func (b *block) insert(key interface{}, value interface{}) bool {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.elements == nil {
-		b.elements = make(map[string]*Element)
+		b.elements = make(map[interface{}]*Element)
 	}
 	_, present := b.elements[key]
 	if present {
@@ -106,23 +137,25 @@ func (i *Interner) evict() {
 func (b *block) tryEvict() (evicted bool, reachedEnd bool) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	if b.next == nil {
-		b.next = b.sweep.Front()
-		if b.next == nil {
-			return false, true
-		}
+	if b.prev == nil {
+		b.prev = b.sweep.Root()
+	}
+
+	elem := b.prev.Next()
+	if elem == nil {
+		return false, true
 	}
 
 	evicted = false
 	reachedEnd = false
 	for !evicted && !reachedEnd {
-		elem := b.next
-		b.next = elem.Next()
-		reachedEnd = b.next == nil
 		if elem.used != 0 {
 			elem.used = 0
+			b.prev = elem
+			elem = b.prev.Next()
+			reachedEnd = elem == nil
 		} else {
-			key, _ := b.sweep.Remove(elem)
+			key, _ := b.sweep.RemoveNext(b.prev)
 			delete(b.elements, key)
 			evicted = true
 		}
@@ -131,16 +164,28 @@ func (b *block) tryEvict() (evicted bool, reachedEnd bool) {
 	return evicted, reachedEnd
 }
 
-func (i *Interner) Get(key string) (int64, bool) {
+func (i *Interner) GetString(key string) (interface{}, bool) {
 	h := maphash.Hash{}
 	h.SetSeed(i.seed)
 	h.WriteString(key)
-	blockNum := h.Sum64() % 127
+	return i.GetWithHash(key, h.Sum64())
+}
+
+func (i *Interner) GetInt(key uint64) (interface{}, bool) {
+	h := maphash.Hash{}
+	h.SetSeed(i.seed)
+	b := [8]byte{}
+	binary.LittleEndian.PutUint64(b[:], key)
+	return i.GetWithHash(key, h.Sum64())
+}
+
+func (i *Interner) GetWithHash(key interface{}, hash uint64) (interface{}, bool) {
+	blockNum := hash % 127
 	block := &i.maps[blockNum]
 	return block.get(key)
 }
 
-func (b *block) get(key string) (int64, bool) {
+func (b *block) get(key interface{}) (interface{}, bool) {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 	if b.elements == nil {

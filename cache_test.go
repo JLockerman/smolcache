@@ -13,8 +13,8 @@ func TestWriteAndGetOnCache(t *testing.T) {
 
 	cache := WithMax(100)
 
-	cache.Insert("1", 1)
-	val, found := cache.Get("1")
+	cache.InsertString("1", 1)
+	val, found := cache.GetString("1")
 
 	// then
 	if !found {
@@ -30,14 +30,14 @@ func TestEntryNotFound(t *testing.T) {
 
 	cache := WithMax(100)
 
-	val, found := cache.Get("nonExistingKey")
+	val, found := cache.GetString("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
 
-	cache.Insert("key", 1)
+	cache.InsertString("key", 1)
 
-	val, found = cache.Get("nonExistingKey")
+	val, found = cache.GetString("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
@@ -49,18 +49,18 @@ func TestEviction(t *testing.T) {
 	cache := WithMax(10)
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		cache.Insert(key, int64(i))
+		cache.InsertString(key, int64(i))
 		if i != 5 {
-			cache.Get(key)
+			cache.GetString(key)
 		}
 	}
 
-	cache.Insert("100", 100)
-	cache.Get("100")
+	cache.InsertString("100", 100)
+	cache.GetString("100")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.Get(key)
+		val, found := cache.GetString(key)
 		if i != 5 && (!found || val != int64(i)) {
 			t.Errorf("missing value %d, got %d", i, val)
 		} else if i == 5 && found {
@@ -71,17 +71,17 @@ func TestEviction(t *testing.T) {
 		}
 	}
 
-	val, found := cache.Get("100")
+	val, found := cache.GetString("100")
 	if !found || val != 100 {
 		t.Errorf("missing value 100, got %d", val)
 	}
 
-	cache.Insert("101", 101)
-	cache.Get("101")
+	cache.InsertString("101", 101)
+	cache.GetString("101")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.Get(key)
+		val, found := cache.GetString(key)
 		if i != 5 && i != 2 && (!found || val != int64(i)) {
 			t.Errorf("missing value %d, (found: %v) got %d", i, found, val)
 		} else if (i == 5 || i == 2) && found {
@@ -89,11 +89,11 @@ func TestEviction(t *testing.T) {
 		}
 	}
 
-	val, found = cache.Get("100")
+	val, found = cache.GetString("100")
 	if !found || val != 100 {
 		t.Errorf("missing value 100, got %d", val)
 	}
-	val, found = cache.Get("101")
+	val, found = cache.GetString("101")
 	if !found || val != 101 {
 		t.Errorf("missing value 101, got %d", val)
 	}
@@ -110,7 +110,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63() % 20000
 			key := fmt.Sprintf("%d", r)
-			cache.Insert(key, r+1)
+			cache.InsertString(key, r+1)
 		}
 		wg.Done()
 	}()
@@ -118,7 +118,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63()
 			key := fmt.Sprintf("%d", r)
-			if val, found := cache.Get(key); found && val != r+1 {
+			if val, found := cache.GetString(key); found && val != r+1 {
 				t.Errorf("got %s ->\n %x\n expected:\n %x\n ", key, val, r+1)
 			}
 		}
