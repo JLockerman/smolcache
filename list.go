@@ -2,6 +2,10 @@ package smolcache
 
 // Element is an element of a linked list.
 type Element struct {
+	//CLOCK marker if this is recently used, must be first for atomic alignment
+	used uint32
+	//pad key out to 8 bytes
+	_padding0 [8]byte
 	// The value stored with this element.
 	key   interface{}
 	Value interface{}
@@ -10,11 +14,9 @@ type Element struct {
 	// To simplify the implementation, internally a list l is implemented
 	// as a ring
 	next *Element
-	//CLOCK marker if this is recently used
-	used uint32
 
 	// pad Elements out to be cache aligned
-	_padding [16]byte
+	_padding1 [1]byte
 }
 
 // Next returns the next list element or nil.
@@ -86,5 +88,6 @@ func (l *List) PushBack(k interface{}, v interface{}) *Element {
 	if l.last == nil {
 		l.Init()
 	}
-	return l.insertValue(k, v, l.last)
+	l.last = l.insertValue(k, v, l.last)
+	return l.last
 }

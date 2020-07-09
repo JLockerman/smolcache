@@ -13,8 +13,8 @@ func TestWriteAndGetOnCache(t *testing.T) {
 
 	cache := WithMax(100)
 
-	cache.InsertString("1", 1)
-	val, found := cache.GetString("1")
+	cache.Insert("1", 1)
+	val, found := cache.Get("1")
 
 	// then
 	if !found {
@@ -30,14 +30,14 @@ func TestEntryNotFound(t *testing.T) {
 
 	cache := WithMax(100)
 
-	val, found := cache.GetString("nonExistingKey")
+	val, found := cache.Get("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
 
-	cache.InsertString("key", 1)
+	cache.Insert("key", 1)
 
-	val, found = cache.GetString("nonExistingKey")
+	val, found = cache.Get("nonExistingKey")
 	if found {
 		t.Errorf("found %d for noexistent key", val)
 	}
@@ -49,18 +49,18 @@ func TestEviction(t *testing.T) {
 	cache := WithMax(10)
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		cache.InsertString(key, int64(i))
+		cache.Insert(key, int64(i))
 		if i != 5 {
-			cache.GetString(key)
+			cache.Get(key)
 		}
 	}
 
-	cache.InsertString("100", 100)
-	cache.GetString("100")
+	cache.Insert("100", 100)
+	cache.Get("100")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.GetString(key)
+		val, found := cache.Get(key)
 		if i != 5 && (!found || val != int64(i)) {
 			t.Errorf("missing value %d, got %d", i, val)
 		} else if i == 5 && found {
@@ -71,17 +71,17 @@ func TestEviction(t *testing.T) {
 		}
 	}
 
-	val, found := cache.GetString("100")
+	val, found := cache.Get("100")
 	if !found || val != 100 {
 		t.Errorf("missing value 100, got %d", val)
 	}
 
-	cache.InsertString("101", 101)
-	cache.GetString("101")
+	cache.Insert("101", 101)
+	cache.Get("101")
 
 	for i := 0; i < 10; i++ {
 		key := fmt.Sprintf("%d", i)
-		val, found := cache.GetString(key)
+		val, found := cache.Get(key)
 		if i != 5 && i != 2 && (!found || val != int64(i)) {
 			t.Errorf("missing value %d, (found: %v) got %d", i, found, val)
 		} else if (i == 5 || i == 2) && found {
@@ -89,14 +89,22 @@ func TestEviction(t *testing.T) {
 		}
 	}
 
-	val, found = cache.GetString("100")
+	val, found = cache.Get("100")
 	if !found || val != 100 {
 		t.Errorf("missing value 100, got %d", val)
 	}
-	val, found = cache.GetString("101")
+	val, found = cache.Get("101")
 	if !found || val != 101 {
 		t.Errorf("missing value 101, got %d", val)
 	}
+}
+
+func printCache(cache *Interner, t *testing.T) {
+	str := "["
+	for k, v := range cache.elements {
+		str = fmt.Sprintf("%s\n\t%v: %v, ", str, k, v)
+	}
+	t.Logf("%s]", str)
 }
 
 func TestCacheGetRandomly(t *testing.T) {
@@ -110,7 +118,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63() % 20000
 			key := fmt.Sprintf("%d", r)
-			cache.InsertString(key, r+1)
+			cache.Insert(key, r+1)
 		}
 		wg.Done()
 	}()
@@ -118,7 +126,7 @@ func TestCacheGetRandomly(t *testing.T) {
 		for i := 0; i < ntest; i++ {
 			r := rand.Int63()
 			key := fmt.Sprintf("%d", r)
-			if val, found := cache.GetString(key); found && val != r+1 {
+			if val, found := cache.Get(key); found && val != r+1 {
 				t.Errorf("got %s ->\n %x\n expected:\n %x\n ", key, val, r+1)
 			}
 		}
@@ -127,12 +135,12 @@ func TestCacheGetRandomly(t *testing.T) {
 	wg.Wait()
 }
 
-func TestBlockCacheAligned(t *testing.T) {
-	blockSize := unsafe.Sizeof(block{})
-	if blockSize%64 != 0 {
-		t.Errorf("unaligned block size: %d", blockSize)
-	}
-}
+// func TestBlockCacheAligned(t *testing.T) {
+// 	blockSize := unsafe.Sizeof(block{})
+// 	if blockSize%64 != 0 {
+// 		t.Errorf("unaligned block size: %d", blockSize)
+// 	}
+// }
 
 func TestElementCacheAligned(t *testing.T) {
 	elementSize := unsafe.Sizeof(Element{})
@@ -142,9 +150,11 @@ func TestElementCacheAligned(t *testing.T) {
 }
 
 func TestCountOffset(t *testing.T) {
-	seedOffset := unsafe.Offsetof(Interner{}.seed)
-	countOffset := unsafe.Offsetof(Interner{}.count)
-	if seedOffset/64 == countOffset/64 {
-		t.Errorf("seed and count on same cache line\nseed @ %d (%d)\noffset @ %d (%d)", seedOffset, seedOffset/64, countOffset, countOffset/64)
+	elementsOffset := unsafe.Offsetof(Interner{}.elements)
+	lockOffset := unsafe.Offsetof(Interner{}.lock)
+	t.Logf("elem offset %d", elementsOffset)
+	t.Logf("lock offset %d", lockOffset)
+	if elementsOffset/64 == lockOffset/64 {
+		t.Errorf("read-mostly and mutable on the same line\nseed @ %d (%d)\noffset @ %d (%d)", elementsOffset, elementsOffset/64, lockOffset, elementsOffset/64)
 	}
 }
