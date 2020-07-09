@@ -36,16 +36,24 @@ type Interner struct {
 
 type block struct {
 	lock sync.RWMutex
-	// guarded by lock
-	elements map[interface{}]*Element
+	// guarded by lock, stores indexes into storage
+	elements map[interface{}]int
 
-	// only safe to not use a pointer since blocks never move
-	sweep List
+	storage []Element
+	// CLOCK sweep state, index into storage guarded by clockLock
+	next int
+}
 
-	// CLOCK sweep state, guarded by clockLock
-	prev *Element
-	// pad blocks out to be cache aligned
-	_padding [16]byte
+type Element struct {
+	// The value stored with this element.
+	key   interface{}
+	Value interface{}
+
+	//CLOCK marker if this is recently used
+	used uint32
+
+	// pad Elements out to be cache aligned
+	_padding [24]byte
 }
 
 func WithMax(max uint64) *Interner {
@@ -104,14 +112,15 @@ func (b *block) insert(key interface{}, value interface{}) bool {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.elements == nil {
-		b.elements = make(map[interface{}]*Element)
+		b.elements = make(map[interface{}]int)
 	}
 	_, present := b.elements[key]
 	if present {
 		return false
 	}
-	elem := b.sweep.PushBack(key, value)
-	b.elements[key] = elem
+	index := len(b.storage)
+	b.storage = append(b.storage, Element{key: key, Value: value})
+	b.elements[key] = index
 	return true
 }
 
@@ -137,28 +146,35 @@ func (i *Interner) evict() {
 func (b *block) tryEvict() (evicted bool, reachedEnd bool) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	if b.prev == nil {
-		b.prev = b.sweep.Root()
-	}
-
-	elem := b.prev.Next()
-	if elem == nil {
+	if len(b.storage) == 0 {
 		return false, true
+	}
+	if b.next >= len(b.storage) {
+		b.next = 0
 	}
 
 	evicted = false
 	reachedEnd = false
 	for !evicted && !reachedEnd {
+		elem := &b.storage[b.next]
 		if elem.used != 0 {
 			elem.used = 0
-			b.prev = elem
-			elem = b.prev.Next()
-			reachedEnd = elem == nil
 		} else {
-			key, _ := b.sweep.RemoveNext(b.prev)
+			key := elem.key
 			delete(b.elements, key)
+			// if elem isn't the last element in storage, swap it
+			// with the last element
+			if b.next < len(b.storage)-1 {
+				*elem = b.storage[len(b.storage)-1]
+				b.elements[elem.key] = b.next
+			}
+			// pop off the last element
+			b.storage[len(b.storage)-1] = Element{}
+			b.storage = b.storage[:len(b.storage)-1]
 			evicted = true
 		}
+		b.next += 1
+		reachedEnd = b.next >= len(b.storage)
 	}
 
 	return evicted, reachedEnd
@@ -191,11 +207,12 @@ func (b *block) get(key interface{}) (interface{}, bool) {
 	if b.elements == nil {
 		return 0, false
 	}
-	elem, present := b.elements[key]
+	idx, present := b.elements[key]
 	if !present {
 		return 0, false
 	}
 
+	elem := &b.storage[idx]
 	if atomic.LoadUint32(&elem.used) == 0 {
 		atomic.StoreUint32(&elem.used, 1)
 	}
@@ -218,11 +235,12 @@ func (b *block) unmark(key string) bool {
 	if b.elements == nil {
 		return false
 	}
-	elem, present := b.elements[key]
+	idx, present := b.elements[key]
 	if !present {
 		return false
 	}
 
+	elem := &b.storage[idx]
 	if atomic.LoadUint32(&elem.used) != 0 {
 		atomic.StoreUint32(&elem.used, 0)
 	}
