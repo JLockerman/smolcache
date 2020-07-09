@@ -149,12 +149,16 @@ func TestElementCacheAligned(t *testing.T) {
 	}
 }
 
-func TestCountOffset(t *testing.T) {
-	elementsOffset := unsafe.Offsetof(Interner{}.elements)
-	lockOffset := unsafe.Offsetof(Interner{}.lock)
-	t.Logf("elem offset %d", elementsOffset)
-	t.Logf("lock offset %d", lockOffset)
-	if elementsOffset/64 == lockOffset/64 {
-		t.Errorf("read-mostly and mutable on the same line\nseed @ %d (%d)\noffset @ %d (%d)", elementsOffset, elementsOffset/64, lockOffset, elementsOffset/64)
-	}
-}
+// The entire cache fits on one cache line, but since
+// we have a contended write to the lock anyway, it
+// doesn't seem that bad that we fetch everything else
+// as well
+// func TestCountOffset(t *testing.T) {
+// 	elementsOffset := unsafe.Offsetof(Interner{}.elements)
+// 	lockOffset := unsafe.Offsetof(Interner{}.lock)
+// 	t.Logf("elem offset %d", elementsOffset)
+// 	t.Logf("lock offset %d", lockOffset)
+// 	if elementsOffset/64 == lockOffset/64 {
+// 		t.Errorf("read-mostly and mutable on the same line\nseed @ %d (%d)\noffset @ %d (%d)", elementsOffset, elementsOffset/64, lockOffset, elementsOffset/64)
+// 	}
+// }
