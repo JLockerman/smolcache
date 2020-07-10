@@ -1,6 +1,7 @@
 package smolcache
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -49,13 +50,37 @@ func WithMaxAndShards(max uint64, shards int) *Interner {
 	return WithMax(max)
 }
 
-func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool) {
+// Insert a key/value mapping into the cache if the key is not already present
+// returns the value present in the map, and true if it is newley inserted
+func (i *Interner) Insert(key interface{}, value interface{}) (canonicalValue interface{}, inserted bool) {
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
+	_, canonicalValue, inserted = i.insert(key, value)
+	return
+}
+
+// Insert a bactch of keys with their corresponding values.
+// This function will _overwrite_ the keys and values slices with their
+// canonical versions.
+func (i *Interner) InsertBatch(keys []interface{}, values []interface{}) {
+	if len(keys) != len(values) {
+		panic(fmt.Sprintf("keys and values are not the same len. %d keys, %d values", len(keys), len(values)))
+	}
+	values = values[:len(keys)]
+	i.lock.Lock()
+	defer i.lock.Unlock()
+
+	for idx := range keys {
+		keys[idx], values[idx], _ = i.insert(keys[idx], values[idx])
+	}
+	return
+}
+
+func (i *Interner) insert(key interface{}, value interface{}) (canonicalKey interface{}, canonicalValue interface{}, inserted bool) {
 	elem, present := i.elements[key]
 	if present {
-		return elem.Value, false
+		return elem.key, elem.Value, false
 	}
 
 	var insertLocation *Element
@@ -68,7 +93,7 @@ func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool
 	}
 
 	i.elements[key] = insertLocation
-	return value, true
+	return key, value, true
 }
 
 func (i *Interner) evict() (insertPtr *Element) {
@@ -104,9 +129,46 @@ func (i *Interner) tryEvict() (insertPtr *Element, evicted bool) {
 	return
 }
 
+// tries to get a batch of keys and store the corresponding values is valuesOut
+// returns the number of keys that were actually found.
+// NOTE: this function does _not_ preserve the order of keys; the first numFound
+//       keys will be the keys whose values are present, while the remainder
+//       will be the keys not present in the cache
+func (i *Interner) GetValues(keys []interface{}, valuesOut []interface{}) (numFound int) {
+	if len(keys) != len(valuesOut) {
+		panic(fmt.Sprintf("keys and values are not the same len. %d keys, %d values", len(keys), len(valuesOut)))
+	}
+	valuesOut = valuesOut[:len(keys)]
+	n := len(keys)
+	idx := 0
+
+	i.lock.RLock()
+	defer i.lock.RUnlock()
+
+	for idx < n {
+		value, found := i.get(keys[idx])
+		if !found {
+			if n == 0 {
+				return 0
+			}
+			// no value found for key, swap the key with the last element, and shrink n
+			n -= 1
+			keys[n], keys[idx] = keys[idx], keys[n]
+			continue
+		}
+		valuesOut[idx] = value
+		idx += 1
+	}
+	return n
+}
+
 func (i *Interner) Get(key interface{}) (interface{}, bool) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
+	return i.get(key)
+}
+
+func (i *Interner) get(key interface{}) (interface{}, bool) {
 
 	elem, present := i.elements[key]
 	if !present {

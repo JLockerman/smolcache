@@ -3,6 +3,7 @@ package smolcache
 import (
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sync"
 	"testing"
 	"unsafe"
@@ -141,6 +142,32 @@ func TestCacheGetRandomly(t *testing.T) {
 // 		t.Errorf("unaligned block size: %d", blockSize)
 // 	}
 // }
+
+func TestBatch(t *testing.T) {
+	t.Parallel()
+
+	cache := WithMax(10)
+
+	cache.InsertBatch([]interface{}{3, 6, 9, 12}, []interface{}{4, 7, 10, 13})
+
+	keys := []interface{}{1, 2, 3, 6, 9, 12, 13}
+	vals := make([]interface{}, len(keys))
+	numFound := cache.GetValues(keys, vals)
+
+	if numFound != 4 {
+		t.Errorf("found incorrect number of values: expected 4, found %d\n\tkeys: %v\n\t%v", numFound, keys, vals)
+	}
+
+	expectedKeys := []interface{}{12, 9, 3, 6, 2, 13, 1}
+	if !reflect.DeepEqual(keys, expectedKeys) {
+		t.Errorf("unexpected keys:\nexpected\n\t%v\nfound\n\t%v", keys, expectedKeys)
+	}
+
+	expectedVals := []interface{}{13, 10, 4, 7, nil, nil, nil}
+	if !reflect.DeepEqual(vals, expectedVals) {
+		t.Errorf("unexpected values:\nexpected\n\t%v\nfound\n\t%v", expectedVals, vals)
+	}
+}
 
 func TestElementCacheAligned(t *testing.T) {
 	elementSize := unsafe.Sizeof(Element{})
