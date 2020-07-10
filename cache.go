@@ -16,7 +16,7 @@ import (
 type Interner struct {
 	lock sync.RWMutex
 	// stores indexes into storage
-	elements map[interface{}]int
+	elements map[interface{}]*Element
 	storage  []Element
 
 	// CLOCK sweep state, must have write lock
@@ -40,7 +40,7 @@ func WithMax(max uint64) *Interner {
 		panic("must have max greater than 0")
 	}
 	return &Interner{
-		elements: make(map[interface{}]int, max),
+		elements: make(map[interface{}]*Element, max),
 		storage:  make([]Element, 0, max),
 	}
 }
@@ -53,36 +53,34 @@ func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool
 	i.lock.Lock()
 	defer i.lock.Unlock()
 
-	idx, present := i.elements[key]
+	elem, present := i.elements[key]
 	if present {
-		return i.storage[idx].Value, false
+		return elem.Value, false
 	}
 
 	var insertLocation *Element
-	var insertIdx int
 	if len(i.storage) >= cap(i.storage) {
-		insertLocation, insertIdx = i.evict()
+		insertLocation = i.evict()
 		*insertLocation = Element{key: key, Value: value}
 	} else {
-		insertIdx = len(i.storage)
 		i.storage = append(i.storage, Element{key: key, Value: value})
 		insertLocation = &i.storage[len(i.storage)-1]
 	}
 
-	i.elements[key] = insertIdx
+	i.elements[key] = insertLocation
 	return value, true
 }
 
-func (i *Interner) evict() (insertPtr *Element, insertIdx int) {
+func (i *Interner) evict() (insertPtr *Element) {
 	for {
-		insertLocation, insertIdx, evicted := i.tryEvict()
+		insertLocation, evicted := i.tryEvict()
 		if evicted {
-			return insertLocation, insertIdx
+			return insertLocation
 		}
 	}
 }
 
-func (i *Interner) tryEvict() (insertPtr *Element, insertIdx int, evicted bool) {
+func (i *Interner) tryEvict() (insertPtr *Element, evicted bool) {
 	if i.next >= len(i.storage) {
 		i.next = 0
 	}
@@ -95,7 +93,6 @@ func (i *Interner) tryEvict() (insertPtr *Element, insertIdx int, evicted bool) 
 			elem.used = 0
 		} else {
 			insertPtr = elem
-			insertIdx = i.next
 			key := elem.key
 			delete(i.elements, key)
 			evicted = true
@@ -111,12 +108,11 @@ func (i *Interner) Get(key interface{}) (interface{}, bool) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
 
-	idx, present := i.elements[key]
+	elem, present := i.elements[key]
 	if !present {
 		return 0, false
 	}
 
-	elem := &i.storage[idx]
 	if atomic.LoadUint32(&elem.used) == 0 {
 		atomic.StoreUint32(&elem.used, 1)
 	}
@@ -128,12 +124,11 @@ func (i *Interner) Unmark(key string) bool {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
 
-	idx, present := i.elements[key]
+	elem, present := i.elements[key]
 	if !present {
 		return false
 	}
 
-	elem := &i.storage[idx]
 	if atomic.LoadUint32(&elem.used) != 0 {
 		atomic.StoreUint32(&elem.used, 0)
 	}
