@@ -18,9 +18,7 @@ type Interner struct {
 	// stores indexes into storage
 	elements map[interface{}]int
 	storage  []Element
-	max      uint64
 
-	count uint64
 	// CLOCK sweep state, must have write lock
 	next int
 }
@@ -38,19 +36,17 @@ type Element struct {
 }
 
 func WithMax(max uint64) *Interner {
+	if max < 1 {
+		panic("must have max greater than 0")
+	}
 	return &Interner{
-		max: max,
+		elements: make(map[interface{}]int, max),
+		storage:  make([]Element, 0, max),
 	}
 }
 
 func WithMaxAndShards(max uint64, shards int) *Interner {
-	if max < 1 {
-		panic("must have max greater than 0")
-	}
-	//TODO variable number of shards
-	return &Interner{
-		max: max,
-	}
+	return WithMax(max)
 }
 
 func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool) {
@@ -62,18 +58,12 @@ func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool
 		return i.storage[idx].Value, false
 	}
 
-	newSize := atomic.AddUint64(&i.count, 1)
-	needsEvict := newSize > i.max
-
 	var insertLocation *Element
 	var insertIdx int
-	if needsEvict {
+	if len(i.storage) >= cap(i.storage) {
 		insertLocation, insertIdx = i.evict()
 		*insertLocation = Element{key: key, Value: value}
 	} else {
-		if i.elements == nil {
-			i.elements = make(map[interface{}]int)
-		}
 		insertIdx = len(i.storage)
 		i.storage = append(i.storage, Element{key: key, Value: value})
 		insertLocation = &i.storage[len(i.storage)-1]
@@ -84,13 +74,9 @@ func (i *Interner) Insert(key interface{}, value interface{}) (interface{}, bool
 }
 
 func (i *Interner) evict() (insertPtr *Element, insertIdx int) {
-	if i.count == 0 {
-		return
-	}
 	for {
 		insertLocation, insertIdx, evicted := i.tryEvict()
 		if evicted {
-			atomic.AddUint64(&i.count, ^uint64(0))
 			return insertLocation, insertIdx
 		}
 	}
@@ -124,9 +110,7 @@ func (i *Interner) tryEvict() (insertPtr *Element, insertIdx int, evicted bool) 
 func (i *Interner) Get(key interface{}) (interface{}, bool) {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
-	if i.elements == nil {
-		return 0, false
-	}
+
 	idx, present := i.elements[key]
 	if !present {
 		return 0, false
@@ -143,9 +127,7 @@ func (i *Interner) Get(key interface{}) (interface{}, bool) {
 func (i *Interner) Unmark(key string) bool {
 	i.lock.RLock()
 	defer i.lock.RUnlock()
-	if i.elements == nil {
-		return false
-	}
+
 	idx, present := i.elements[key]
 	if !present {
 		return false
@@ -159,6 +141,8 @@ func (i *Interner) Unmark(key string) bool {
 	return true
 }
 
-func (i *Interner) Len() uint64 {
-	return atomic.LoadUint64(&i.count)
+func (i *Interner) Len() int {
+	i.lock.RLock()
+	defer i.lock.RUnlock()
+	return len(i.storage)
 }

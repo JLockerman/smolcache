@@ -147,6 +147,9 @@ func TestElementCacheAligned(t *testing.T) {
 	if elementSize%64 != 0 {
 		t.Errorf("unaligned element size: %d", elementSize)
 	}
+	if elementSize != 64 {
+		t.Errorf("unexpected element size: %d", elementSize)
+	}
 }
 
 // The entire cache fits on one cache line, but since
